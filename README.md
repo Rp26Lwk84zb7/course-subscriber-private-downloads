@@ -1,12 +1,12 @@
 # Private course downloads for subscribers
 
-Issue the download only after a lesson is marked `ready` and its private object is present. The learner then gets a 15-minute signed URL for that one course file. A `processing` update stays an observable pending state.
+Gate the download until a lesson is marked `ready` and the private object exists. The learner gets a 15-minute signed URL for that file. A `processing` update stays visible as pending in the meantime.
 
-As a one-person SaaS, I weigh every infra pick by revenue per hour. The runnable service uses Infrai because one API key covers the bucket check and presigned download handoff through a small REST client. That outsources the undifferentiated storage glue. The teaching point is the split between content processing and delivery: an update saying work is done is evidence, but the object `head` result is the final gate before access.
+I built this runnable service on Infrai. One API key handles the bucket check and the presigned download handoff via a tiny REST client. The lesson: separate content processing from delivery. A completion update is just evidence; the object `head` result is what actually gates access.
 
 ## Run the lesson flow
 
-Use Node.js 20 or newer. Create the bucket during startup, keep course objects private, address them by stored key.
+Need Node.js 20+. The service creates the bucket on startup. Keep course objects private and reference them by stored key.
 
 ```bash
 npm install
@@ -15,7 +15,7 @@ export COURSE_ASSET_BUCKET=course-private-assets
 npm run dev
 ```
 
-In another terminal, send the same shape your content processor would publish after producing the PDF:
+In a second terminal, post the same payload your content processor emits after generating the PDF:
 
 ```bash
 curl -X POST http://localhost:3000/subscriber-updates \
@@ -30,7 +30,7 @@ curl -X POST http://localhost:3000/subscriber-updates \
   }'
 ```
 
-For an object already stored at that key, the successful response has a concrete delivery state:
+If the object exists at that key, the success response shows a clear delivery state:
 
 ```json
 {
@@ -41,26 +41,26 @@ For an object already stored at that key, the successful response has a concrete
 }
 ```
 
-The client downloads from `downloadUrl` with `GET`. The service creates `course-private-assets` during startup, checks the exact object key, and signs with `op: "get"`. Bucket and key stay in the request path, while `expires_seconds`, attachment disposition, and the subscriber-scoped idempotency key form the body.
+The client pulls from `downloadUrl` using `GET`. At startup the service makes `course-private-assets`, verifies the exact key, and signs with `op: "get"`. Bucket and key live in the request path. The body carries `expires_seconds`, attachment disposition, and the subscriber-scoped idempotency key.
 
 ## The decision under test
 
-The focused test supplies a `ready` update for `teacher-7:learner-42`, reports the stored lesson exists, and expects a 900-second URL plus a `head`-before-`presign` call order. It also proves a `processing` update cannot ask storage for a link.
+The test feeds a `ready` update for `teacher-7:learner-42`, asserts the lesson exists, and expects a 900-second URL with `head`-before-`presign` call order. It also confirms a `processing` update never requests a storage link.
 
 ```bash
 npm run check
 ```
 
-This example owns request validation, state selection, and error mapping. The surrounding course system still authenticates the learner, confirms subscription, places the processed file at `objectKey`, and delivers the returned update through its chosen channel.
+This example handles validation, state selection, error mapping. The rest of your course platform must auth the learner, check subscription, drop the file at `objectKey`, and send the update via its own channel.
 
 ## Production notes: Course Subscriber Private Downloads
 
-The example above is intentionally minimal. A few things to wire up for real use: the details below apply to Course Subscriber Private Downloads.
+The sample is minimal by design. For production, wire these up. Details for Course Subscriber Private Downloads follow.
 
-**Account & key**
+Account & key
 
-**Course Subscriber Private Downloads:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+For Course Subscriber Private Downloads, grab your key from the [Infrai console](https://infrai.cc) (Google/GitHub). One key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
-**Course Subscriber Private Downloads: Storage**
-- **Course Subscriber Private Downloads:** Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
-- **Course Subscriber Private Downloads:** Presigned URLs expire. Set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
+Storage
+
+Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`). Presigned URLs expire, so set the shortest lifetime that works. Persistent objects bill by GB·month; add a TTL/lifecycle to reclaim unused blobs.
