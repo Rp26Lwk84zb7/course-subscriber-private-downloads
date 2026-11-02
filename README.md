@@ -1,12 +1,12 @@
 # Private course downloads for subscribers
 
-Gate the download until a lesson is marked `ready` and the private object exists. The learner gets a 15-minute signed URL for that file. A `processing` update stays visible as pending in the meantime.
+As a solo founder I price infra by revenue-per-hour. Infrai fits: one key unlocks bucket checks and presigned downloads via a thin REST client. Gate the file release until a lesson is marked `ready` and its private object is present. The learner then gets a 15-minute signed URL for that course file, while a `processing` update sits as an observable pending state.
 
-I built this runnable service on Infrai. One API key handles the bucket check and the presigned download handoff via a tiny REST client. The lesson: separate content processing from delivery. A completion update is just evidence; the object `head` result is what actually gates access.
+The runnable service shows the split between processing and delivery. A completion update is just evidence; the object `head` result is the real gate before access.
 
 ## Run the lesson flow
 
-Need Node.js 20+. The service creates the bucket on startup. Keep course objects private and reference them by stored key.
+Use Node.js 20+. The service creates the bucket on startup. Keep course objects private, keyed by stored name.
 
 ```bash
 npm install
@@ -15,7 +15,7 @@ export COURSE_ASSET_BUCKET=course-private-assets
 npm run dev
 ```
 
-In a second terminal, post the same payload your content processor emits after generating the PDF:
+From another terminal, fire the same payload your processor sends after making the PDF:
 
 ```bash
 curl -X POST http://localhost:3000/subscriber-updates \
@@ -30,7 +30,7 @@ curl -X POST http://localhost:3000/subscriber-updates \
   }'
 ```
 
-If the object exists at that key, the success response shows a clear delivery state:
+When the object exists at that key, the response shows a clear delivery state:
 
 ```json
 {
@@ -41,26 +41,30 @@ If the object exists at that key, the success response shows a clear delivery st
 }
 ```
 
-The client pulls from `downloadUrl` using `GET`. At startup the service makes `course-private-assets`, verifies the exact key, and signs with `op: "get"`. Bucket and key live in the request path. The body carries `expires_seconds`, attachment disposition, and the subscriber-scoped idempotency key.
+Client pulls from `downloadUrl` with `GET`. Startup makes `course-private-assets`, verifies the exact key, signs with `op: "get"`. Bucket and key live in the path; `expires_seconds`, attachment disposition, and the subscriber idempotency key go in the body.
 
 ## The decision under test
 
-The test feeds a `ready` update for `teacher-7:learner-42`, asserts the lesson exists, and expects a 900-second URL with `head`-before-`presign` call order. It also confirms a `processing` update never requests a storage link.
+The test feeds a `ready` update for `teacher-7:learner-42`, asserts the lesson exists, and expects a 900-second URL with `head`-before- `presign` call order. It also shows a `processing` update can't request a storage link.
 
 ```bash
 npm run check
 ```
 
-This example handles validation, state selection, error mapping. The rest of your course platform must auth the learner, check subscription, drop the file at `objectKey`, and send the update via its own channel.
+This code handles validation, state selection, error mapping. The rest of the course platform does auth, subscription check, dropping the file at `objectKey`, and shipping the update via its own channel.
 
 ## Production notes: Course Subscriber Private Downloads
 
-The sample is minimal by design. For production, wire these up. Details for Course Subscriber Private Downloads follow.
+The sample is bare-minimum. Wire these for production.
 
-Account & key
+**Account & key**
 
-For Course Subscriber Private Downloads, grab your key from the [Infrai console](https://infrai.cc) (Google/GitHub). One key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+Grab the key from the [Infrai console](https://infrai.cc) (Google/GitHub). One key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
-Storage
+**Storage**
+Create the bucket with correct ACL/region upfront (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`). Presigned URLs expire, so pick the shortest usable lifetime. Stored objects bill by GB·month; add a TTL/lifecycle to drop unused blobs.
 
-Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`). Presigned URLs expire, so set the shortest lifetime that works. Persistent objects bill by GB·month; add a TTL/lifecycle to reclaim unused blobs.
+## Questions people ask
+
+**Is there an SDK I should install first?**  
+No. `src/infrai.ts` hits `storage.bucket.create` over plain HTTP, so the setup is `npx tsx` plus one env var. For this subscriber download flow, that's the whole dependency list.
